@@ -1,8 +1,8 @@
 package com.scc.dao;
 
-public class DataBaseinitializer {
+public class Databaseinitializer {
     public static void initializer(){
-        new UsersDao();
+        new UserDao();
         System.out.println(" -> Database tables verified");
     }
 }
