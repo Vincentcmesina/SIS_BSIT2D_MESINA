@@ -1,4 +1,3 @@
-
 package com.scc.ui;
 
 import com.scc.dao.UserDao;
@@ -40,9 +39,9 @@ public class AdminMenu {
                 case "1" -> viewAllUser();
                 case "2" -> viewPendingUsers();
                 case "3" -> approveUser(admin);
-                case "4" -> System.out.println("Add New User is not implemented yet.");
+                case "4" -> addUser(admin);
                 case "5" -> updateUser(admin);
-                case "6" -> System.out.println("Delete User Account is not implemented yet.");
+                case "6" -> deleteUser(admin);
                 case "7" -> userDao.displayAuditLogs();
                 case "8" -> {
                     userDao.logActivity(
@@ -172,9 +171,122 @@ public class AdminMenu {
         }
     }
 
+    private void addUser(user admin) {
+        System.out.println("\n==================== ADD NEW USER ====================");
+        System.out.println("(Type 0 at the username prompt to cancel)");
+
+        String username;
+        while (true) {
+            System.out.print("Enter username: ");
+            username = scanner.nextLine().trim();
+
+            if (username.equals("0")) {
+                System.out.println("-> Operation cancelled.");
+                return;
+            }
+            if (username.isEmpty() || username.contains(" ")) {
+                System.out.println("-> [ERROR] Username cannot be empty or contain spaces.");
+            } else if (userDao.usernameExists(username)) {
+                System.out.println("-> [ERROR] Username already taken.");
+            } else {
+                break;
+            }
+        }
+
+        String password;
+        while (true) {
+            System.out.print("Enter password: ");
+            password = scanner.nextLine();
+
+            if (password.isBlank()) {
+                System.out.println("-> [ERROR] Password cannot be empty.");
+            } else {
+                break;
+            }
+        }
+
+        String role = readValidRole();
+        if (role == null) {
+            System.out.println("-> Operation cancelled.");
+            return;
+        }
+
+        String status = readValidStatus();
+        if (status == null) {
+            System.out.println("-> Operation cancelled.");
+            return;
+        }
+
+        int newId = userDao.addUser(username, password, role, status);
+
+        if (newId > 0) {
+            userDao.logActivity(
+                    admin.id(),
+                    "ADD_USER",
+                    "Admin created user '" + username + "' (ID: " + newId +
+                            ") | Roles: " + role + " | Status: " + status
+            );
+        }
+    }
+
+    private void deleteUser(user admin) {
+        List<user> users = userDao.getAllUser();
+
+        displayUserTable(users, "SELECT USER TO DELETE");
+
+        if (users.isEmpty()) {
+            return;
+        }
+
+        int userId = readIntInput("Enter User ID to delete (or 0 to cancel): ");
+
+        if (userId == 0) {
+            System.out.println("-> Operation cancelled.");
+            return;
+        }
+
+        user target = users.stream()
+                .filter(u -> u.id() == userId)
+                .findFirst()
+                .orElse(null);
+
+        if (target == null) {
+            System.out.println("-> [ERROR] User ID not found.");
+            return;
+        }
+
+        if (target.id() == admin.id()) {
+            System.out.println("-> [WARNING] You cannot delete the account you are logged in with.");
+            return;
+        }
+
+        if ("ADMIN".equalsIgnoreCase(target.roles()) && userDao.countUsersByRole("ADMIN") <= 1) {
+            System.out.println("-> [WARNING] Cannot delete the last remaining admin.");
+            return;
+        }
+
+        System.out.println("-> You are about to permanently delete: " + target);
+        System.out.println("   This also removes the activity logs belonging to this user.");
+        System.out.print("Type YES to confirm: ");
+
+        if (!scanner.nextLine().trim().equals("YES")) {
+            System.out.println("-> Operation cancelled.");
+            return;
+        }
+
+        if (userDao.deleteUser(userId)) {
+            userDao.logActivity(
+                    admin.id(),
+                    "DELETE_USER",
+                    "Admin deleted user '" + target.username() + "' (ID: " + userId +
+                            ") | Roles: " + target.roles()
+            );
+        }
+    }
+
     private String readValidRole() {
         while (true) {
-            System.out.print("Enter Role (STUDENT/CUSTODIAN/ADMIN) [0 to cancel]: ");
+            System.out.print("Enter Role (STUDENT/TEACHER/ADMIN) [0 to cancel]: ");
 
             String role = scanner.nextLine().trim().toUpperCase();
 
@@ -183,7 +295,7 @@ public class AdminMenu {
             }
 
             if (role.equals("STUDENT") ||
-                    role.equals("CUSTODIAN") ||
+                    role.equals("TEACHER") ||
                     role.equals("ADMIN")) {
                 return role;
             }
@@ -224,4 +336,3 @@ public class AdminMenu {
         }
     }
 }
-

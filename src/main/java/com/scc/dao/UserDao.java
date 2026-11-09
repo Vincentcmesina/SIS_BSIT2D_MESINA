@@ -1,4 +1,3 @@
-
 package com.scc.dao;
 
 import com.scc.model.user;
@@ -19,7 +18,7 @@ public class UserDao {
 
     public void defaultAdminGenerator(Connection conn) {
         String checkSql = "SELECT COUNT(*) FROM user WHERE roles = 'ADMIN'";
-        String insertSql = "INSERT INTO user(username, password, role, status) " +
+        String insertSql = "INSERT INTO user(username, password, roles, status) " +
                 "VALUES('admin', 'admin123', 'ADMIN', 'APPROVED')";
 
         try (Statement stmt = conn.createStatement();
@@ -204,6 +203,110 @@ public class UserDao {
 
         } catch (SQLException e) {
             System.err.println("Error updating user: " + e.getMessage());
+        }
+
+        return false;
+    }
+
+    public boolean usernameExists(String username) {
+        String sql = "SELECT 1 FROM user WHERE LOWER(username) = LOWER(?)";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setString(1, username);
+
+            try (ResultSet rs = pstmt.executeQuery()) {
+                return rs.next();
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Error checking username: " + e.getMessage());
+            return true; // fail safe: treat as taken so we never create a duplicate
+        }
+    }
+
+    // Admin-created account (no approval step needed unless status says so).
+    // Returns the new user's ID, or -1 on failure.
+    public int addUser(String username, String password, String roles, String status) {
+        String sql = "INSERT INTO user(username, password, roles, status) VALUES(?, ?, ?, ?)";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+
+            pstmt.setString(1, username);
+            pstmt.setString(2, password);
+            pstmt.setString(3, roles.toUpperCase());
+            pstmt.setString(4, status.toUpperCase());
+            pstmt.executeUpdate();
+
+            try (ResultSet keys = pstmt.getGeneratedKeys()) {
+                if (keys.next()) {
+                    int id = keys.getInt(1);
+                    System.out.println("-> User '" + username + "' created with ID: " + id);
+                    return id;
+                }
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Error adding user: " + e.getMessage());
+        }
+
+        return -1;
+    }
+
+    public int countUsersByRole(String roles) {
+        String sql = "SELECT COUNT(*) FROM user WHERE roles = ?";
+
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+
+            pstmt.setString(1, roles.toUpperCase());
+
+            try (ResultSet rs = pstmt.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Error counting users: " + e.getMessage());
+            return 0;
+        }
+    }
+
+    // activity_logs.user_id is a NOT NULL foreign key to user.id, so the user's
+    // own log rows must be removed in the same transaction as the user row.
+    public boolean deleteUser(int userId) {
+        String deleteLogsSql = "DELETE FROM activity_logs WHERE user_id = ?";
+        String deleteUserSql = "DELETE FROM user WHERE id = ?";
+
+        try (Connection conn = DatabaseConnection.getConnection()) {
+            conn.setAutoCommit(false);
+
+            try (PreparedStatement logsStmt = conn.prepareStatement(deleteLogsSql);
+                 PreparedStatement userStmt = conn.prepareStatement(deleteUserSql)) {
+
+                logsStmt.setInt(1, userId);
+                logsStmt.executeUpdate();
+
+                userStmt.setInt(1, userId);
+                int rows = userStmt.executeUpdate();
+
+                if (rows > 0) {
+                    conn.commit();
+                    System.out.println("-> User ID: " + userId + " deleted successfully!");
+                    return true;
+                }
+
+                conn.rollback();
+                System.out.println("-> User ID not found.");
+
+            } catch (SQLException e) {
+                conn.rollback();
+                throw e;
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Error deleting user: " + e.getMessage());
         }
 
         return false;
