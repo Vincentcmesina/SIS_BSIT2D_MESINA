@@ -86,7 +86,7 @@ public class UserDao {
 
                     // Record successful login
                     logActivity(
-                            loggedInUser.id(),
+                            loggedInUser.user_id(),
                             "LOGIN",
                             "User logged into the system."
                     );

@@ -1,5 +1,7 @@
 package com.scc.ui;
 
+import com.scc.dao.EquipmentDao;
+import com.scc.dao.BorrowTransactionDao;
 import com.scc.dao.UserDao;
 import com.scc.model.user;
 
@@ -9,6 +11,8 @@ import java.util.Scanner;
 public class AdminMenu {
 
     private final UserDao userDao;
+    private final EquipmentDao equipmentDao = new EquipmentDao();
+    private final BorrowTransactionDao transactionDao = new BorrowTransactionDao();
     private final Scanner scanner;
 
     public AdminMenu(UserDao userDao, Scanner scanner) {
@@ -29,9 +33,11 @@ public class AdminMenu {
             System.out.println("4. Add New User");
             System.out.println("5. Update User Role / Status");
             System.out.println("6. Delete User Account");
-            System.out.println("7. View System Audit Logs");
-            System.out.println("8. Logout");
-            System.out.print("Choose an option (1-8): ");
+            System.out.println("7. Manage Equipment");
+            System.out.println("8. View Transactions");
+            System.out.println("9. View System Audit Logs");
+            System.out.println("10. Logout");
+            System.out.print("Choose an option (1-10): ");
 
             String choice = scanner.nextLine().trim();
 
@@ -39,13 +45,15 @@ public class AdminMenu {
                 case "1" -> viewAllUser();
                 case "2" -> viewPendingUsers();
                 case "3" -> approveUser(admin);
-                case "4" -> addUser(admin);
+                case "4" -> addNewUser(admin);
                 case "5" -> updateUser(admin);
                 case "6" -> deleteUser(admin);
-                case "7" -> userDao.displayAuditLogs();
-                case "8" -> {
+                case "7" -> manageEquipment(admin);
+                case "8" -> viewTransactions();
+                case "9" -> userDao.displayAuditLogs();
+                case "10" -> {
                     userDao.logActivity(
-                            admin.id(),
+                            admin.user_id(),
                             "LOGOUT",
                             "Admin logged out of the system."
                     );
@@ -67,12 +75,12 @@ public class AdminMenu {
 
         System.out.println("+-----+-----------------+------------+------------+");
         System.out.printf("| %-3s | %-15s | %-10s | %-10s |%n",
-                "ID", "Username", "Roles", "Status");
+                "ID", "Username", "Role", "Status");
         System.out.println("+-----+-----------------+------------+------------+");
 
         for (user u : users) {
             System.out.printf("| %-3d | %-15s | %-10s | %-10s |%n",
-                    u.id(), u.username(), u.roles(), u.status());
+                    u.user_id(), u.username(), u.roles(), u.status());
         }
 
         System.out.println("+-----+-----------------+------------+------------+");
@@ -102,7 +110,7 @@ public class AdminMenu {
             return;
         }
 
-        boolean exists = pendingUsers.stream().anyMatch(u -> u.id() == userId);
+        boolean exists = pendingUsers.stream().anyMatch(u -> u.user_id() == userId);
 
         if (!exists) {
             System.out.println("-> [ERROR] User ID not found.");
@@ -111,7 +119,7 @@ public class AdminMenu {
 
         if (userDao.approveUser(userId)) {
             userDao.logActivity(
-                    admin.id(),
+                    admin.user_id(),
                     "APPROVE_USER",
                     "Admin approved user account with ID: " + userId
             );
@@ -134,14 +142,14 @@ public class AdminMenu {
             return;
         }
 
-        boolean exists = users.stream().anyMatch(u -> u.id() == userId);
+        boolean exists = users.stream().anyMatch(u -> u.user_id() == userId);
 
         if (!exists) {
             System.out.println("-> [ERROR] User ID not found.");
             return;
         }
 
-        if (userId == currentAdmin.id()) {
+        if (userId == currentAdmin.user_id()) {
             System.out.println("-> [WARNING] Modifying the currently active admin is restricted.");
             return;
         }
@@ -162,131 +170,18 @@ public class AdminMenu {
 
         if (userDao.updateUserAndStatus(userId, newRole, newStatus)) {
             userDao.logActivity(
-                    currentAdmin.id(),
+                    currentAdmin.user_id(),
                     "UPDATE_USER",
                     "Admin updated user ID: " + userId +
-                            " | New roles: " + newRole +
+                            " | New role: " + newRole +
                             " | New status: " + newStatus
-            );
-        }
-    }
-
-    private void addUser(user admin) {
-        System.out.println("\n==================== ADD NEW USER ====================");
-        System.out.println("(Type 0 at the username prompt to cancel)");
-
-        String username;
-        while (true) {
-            System.out.print("Enter username: ");
-            username = scanner.nextLine().trim();
-
-            if (username.equals("0")) {
-                System.out.println("-> Operation cancelled.");
-                return;
-            }
-            if (username.isEmpty() || username.contains(" ")) {
-                System.out.println("-> [ERROR] Username cannot be empty or contain spaces.");
-            } else if (userDao.usernameExists(username)) {
-                System.out.println("-> [ERROR] Username already taken.");
-            } else {
-                break;
-            }
-        }
-
-        String password;
-        while (true) {
-            System.out.print("Enter password: ");
-            password = scanner.nextLine();
-
-            if (password.isBlank()) {
-                System.out.println("-> [ERROR] Password cannot be empty.");
-            } else {
-                break;
-            }
-        }
-
-        String role = readValidRole();
-        if (role == null) {
-            System.out.println("-> Operation cancelled.");
-            return;
-        }
-
-        String status = readValidStatus();
-        if (status == null) {
-            System.out.println("-> Operation cancelled.");
-            return;
-        }
-
-        int newId = userDao.addUser(username, password, role, status);
-
-        if (newId > 0) {
-            userDao.logActivity(
-                    admin.id(),
-                    "ADD_USER",
-                    "Admin created user '" + username + "' (ID: " + newId +
-                            ") | Roles: " + role + " | Status: " + status
-            );
-        }
-    }
-
-    private void deleteUser(user admin) {
-        List<user> users = userDao.getAllUser();
-
-        displayUserTable(users, "SELECT USER TO DELETE");
-
-        if (users.isEmpty()) {
-            return;
-        }
-
-        int userId = readIntInput("Enter User ID to delete (or 0 to cancel): ");
-
-        if (userId == 0) {
-            System.out.println("-> Operation cancelled.");
-            return;
-        }
-
-        user target = users.stream()
-                .filter(u -> u.id() == userId)
-                .findFirst()
-                .orElse(null);
-
-        if (target == null) {
-            System.out.println("-> [ERROR] User ID not found.");
-            return;
-        }
-
-        if (target.id() == admin.id()) {
-            System.out.println("-> [WARNING] You cannot delete the account you are logged in with.");
-            return;
-        }
-
-        if ("ADMIN".equalsIgnoreCase(target.roles()) && userDao.countUsersByRole("ADMIN") <= 1) {
-            System.out.println("-> [WARNING] Cannot delete the last remaining admin.");
-            return;
-        }
-
-        System.out.println("-> You are about to permanently delete: " + target);
-        System.out.println("   This also removes the activity logs belonging to this user.");
-        System.out.print("Type YES to confirm: ");
-
-        if (!scanner.nextLine().trim().equals("YES")) {
-            System.out.println("-> Operation cancelled.");
-            return;
-        }
-
-        if (userDao.deleteUser(userId)) {
-            userDao.logActivity(
-                    admin.id(),
-                    "DELETE_USER",
-                    "Admin deleted user '" + target.username() + "' (ID: " + userId +
-                            ") | Roles: " + target.roles()
             );
         }
     }
 
     private String readValidRole() {
         while (true) {
-            System.out.print("Enter Role (STUDENT/TEACHER/ADMIN) [0 to cancel]: ");
+            System.out.print("Enter Role (STUDENT/CUSTODIAN/ADMIN) [0 to cancel]: ");
 
             String role = scanner.nextLine().trim().toUpperCase();
 
@@ -295,7 +190,7 @@ public class AdminMenu {
             }
 
             if (role.equals("STUDENT") ||
-                    role.equals("TEACHER") ||
+                    role.equals("CUSTODIAN") ||
                     role.equals("ADMIN")) {
                 return role;
             }
@@ -333,6 +228,223 @@ public class AdminMenu {
             } catch (NumberFormatException e) {
                 System.out.println("-> [ERROR] Please enter a valid numeric ID.");
             }
+        }
+    }
+
+    private void addNewUser(user admin) {
+        System.out.println("\n========== ADD NEW USER ==========");
+
+        System.out.print("Enter Username: ");
+        String username = scanner.nextLine().trim();
+
+        if (username.isEmpty()) {
+            System.out.println("-> [ERROR] Username cannot be empty.");
+            return;
+        }
+
+        System.out.print("Enter Password: ");
+        String password = scanner.nextLine().trim();
+
+        if (password.isEmpty()) {
+            System.out.println("-> [ERROR] Password cannot be empty.");
+            return;
+        }
+
+        String role = readValidRole();
+
+        if (role == null) {
+            System.out.println("-> Operation cancelled.");
+            return;
+        }
+
+        // Register the new user
+        if (userDao.registerUser(username, password, role)) {
+            userDao.logActivity(
+                    admin.user_id(),
+                    "ADD_USER",
+                    "Admin added a new user: " + username +
+                            " | Role: " + role
+            );
+
+            System.out.println("-> User registered successfully!");
+            System.out.println("-> Account Status: PENDING");
+        } else {
+            System.out.println("-> [ERROR] Failed to register user.");
+        }
+    }
+
+    private void deleteUser(user admin) {
+        System.out.println("\n========== DELETE USER ACCOUNT ==========");
+
+        List<user> users = userDao.getAllUser();
+
+        displayUserTable(users, "REGISTERED USERS");
+
+        if (users.isEmpty()) {
+            return;
+        }
+
+        int userId = readIntInput(
+                "Enter User ID to delete (or 0 to cancel): "
+        );
+
+        if (userId == 0) {
+            System.out.println("-> Operation cancelled.");
+            return;
+        }
+
+        // Prevent admin from deleting their own account
+        if (userId == admin.user_id()) {
+            System.out.println(
+                    "-> [WARNING] You cannot delete your own active account."
+            );
+            return;
+        }
+
+        boolean exists = users.stream()
+                .anyMatch(u -> u.user_id() == userId);
+
+        if (!exists) {
+            System.out.println("-> [ERROR] User ID not found.");
+            return;
+        }
+
+        System.out.print(
+                "Are you sure you want to delete this account? (YES/NO): "
+        );
+
+        String confirmation = scanner.nextLine().trim();
+
+        if (!confirmation.equalsIgnoreCase("YES")) {
+            System.out.println("-> Deletion cancelled.");
+            return;
+        }
+
+        if (userDao.deleteUser(userId)) {
+            userDao.logActivity(
+                    admin.user_id(),
+                    "DELETE_USER",
+                    "Admin deleted user account with ID: " + userId
+            );
+
+            System.out.println("-> User account deleted successfully!");
+        } else {
+            System.out.println("-> [ERROR] Failed to delete user account.");
+        }
+    }
+
+    private void manageEquipment(user admin) {
+        boolean running = true;
+
+        while (running) {
+            System.out.println("\n========== EQUIPMENT MANAGEMENT ==========");
+            System.out.println("1. Add Equipment");
+            System.out.println("2. View Equipment");
+            System.out.println("3. Search Equipment");
+            System.out.println("4. Update Equipment");
+            System.out.println("5. Archive Equipment");
+            System.out.println("6. Back to Admin Dashboard");
+            System.out.print("Choose an option (1-6): ");
+
+            String choice = scanner.nextLine().trim();
+
+            switch (choice) {
+                case "1" -> {
+                    System.out.print("Equipment name: ");
+                    String name = scanner.nextLine().trim();
+
+                    System.out.print("Category: ");
+                    String category = scanner.nextLine().trim();
+
+                    System.out.print("Description: ");
+                    String description = scanner.nextLine().trim();
+
+                    int quantity = readIntInput("Quantity: ");
+
+                    if (equipmentDao.addEquipment(name, category, description, quantity, admin.user_id())) {
+                        userDao.logActivity(
+                                admin.user_id(),
+                                "ADD_EQUIPMENT",
+                                "Admin added equipment: " + name + " | Qty: " + quantity
+                        );
+                        System.out.println("-> Equipment added successfully.");
+                    } else {
+                        System.out.println("-> [ERROR] Unable to add equipment.");
+                    }
+                }
+                case "2" -> {
+                    System.out.println("\n========== ALL EQUIPMENT ==========");
+                    var equipmentList = equipmentDao.getAllEquipment();
+                    if (equipmentList.isEmpty()) {
+                        System.out.println("-> No Equipment Found");
+                    } else {
+                        equipmentList.forEach(System.out::println);
+                    }
+                }
+                case "3" -> {
+                    System.out.print("Search keyword: ");
+                    String keyword = scanner.nextLine().trim();
+
+                    System.out.println("\n========== SEARCH RESULTS ==========");
+                    var results = equipmentDao.searchEquipment(keyword);
+                    if (results.isEmpty()) {
+                        System.out.println("-> No Matching Equipment Found");
+                    } else {
+                        results.forEach(System.out::println);
+                    }
+                }
+                case "4" -> {
+                    int id = readIntInput("Equipment ID: ");
+
+                    System.out.print("New name: ");
+                    String name = scanner.nextLine().trim();
+
+                    System.out.print("Category: ");
+                    String category = scanner.nextLine().trim();
+
+                    System.out.print("Description: ");
+                    String description = scanner.nextLine().trim();
+
+                    int quantity = readIntInput("Total quantity: ");
+
+                    if (equipmentDao.updateEquipment(id, name, category, description, quantity, admin.user_id())) {
+                        userDao.logActivity(
+                                admin.user_id(),
+                                "UPDATE_EQUIPMENT",
+                                "Admin updated equipment ID: " + id + " | Name: " + name + " | Qty: " + quantity
+                        );
+                        System.out.println("-> Equipment updated successfully.");
+                    } else {
+                        System.out.println("-> [ERROR] Update failed.");
+                    }
+                }
+                case "5" -> {
+                    int id = readIntInput("Equipment ID to archive: ");
+
+                    if (equipmentDao.deleteEquipment(id, admin.user_id())) {
+                        userDao.logActivity(
+                                admin.user_id(),
+                                "ARCHIVE_EQUIPMENT",
+                                "Admin archived equipment ID: " + id
+                        );
+                        System.out.println("-> Equipment archived successfully.");
+                    } else {
+                        System.out.println("-> [ERROR] Cannot archive equipment.");
+                    }
+                }
+                case "6" -> running = false;
+                default -> System.out.println("-> [ERROR] Invalid Option.");
+            }
+        }
+    }
+
+    private void viewTransactions() {
+        System.out.println("\n========== EQUIPMENT TRANSACTIONS ==========");
+        var transactions = transactionDao.getAllTransactions();
+        if (transactions.isEmpty()) {
+            System.out.println("-> No Transactions Found");
+        } else {
+            transactions.forEach(System.out::println);
         }
     }
 }
